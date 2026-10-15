@@ -1,0 +1,13 @@
+{
+  "name": "discord-backup-owner-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot Discord backup Owner - Web dashboard + /givemeowner (REST-only, chạy được trên Vercel)",
+  "type": "module",
+  "scripts": {
+    "register": "node scripts/register-commands.js"
+  },
+  "dependencies": {
+    "discord-interactions": "^4.2.0"
+  }
+}

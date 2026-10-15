@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Discord Backup Owner - Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1e1f22; color: #e3e5e8; margin: 0; padding: 20px; }
+  .wrap { max-width: 560px; margin: 30px auto; background: #2b2d31; border-radius: 12px; padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  h2 { margin: 0 0 6px; }
+  p.desc { color: #b5bac1; font-size: 14px; }
+  label { font-size: 13px; color: #b5bac1; display: block; margin: 14px 0 6px; }
+  input { width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid #1e1f22; background: #1e1f22; color: #fff; outline: none; }
+  input:focus { border-color: #5865F2; }
+  .dropdown { position: relative; margin-top: 6px; }
+  .list { max-height: 320px; overflow-y: auto; background: #1e1f22; border-radius: 8px; margin-top: 8px; border: 1px solid #111; }
+  .item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #2b2d31; display: flex; flex-direction: column; gap: 2px; }
+  .item:hover { background: #35373c; }
+  .item.selected { background: #404249; border-left: 3px solid #5865F2; }
+  .uname { font-weight: 600; }
+  .nick { font-size: 13px; color: #b5bac1; }
+  .id { font-size: 11px; color: #6d6f78; font-family: monospace; }
+  button { width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 8px; background: #5865F2; color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.danger { background: #ed4245; }
+  #msg { margin-top: 12px; font-size: 14px; white-space: pre-wrap; }
+  .warn { background: #3a2a00; border: 1px solid #a97c00; color: #ffcf5c; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>🛡️ Backup Owner Dashboard</h2>
+  <p class="desc">Nhập <b>ADMIN_SECRET</b> → tìm kiếm theo username / nickname → chọn người → cấp role Owner.<br>
+  Chỉ user có trong <b>ALLOWED_USER_IDS</b> mới được cấp (chống người lạ).</p>
+
+  <label>Mật khẩu ADMIN_SECRET</label>
+  <input id="secret" type="password" placeholder="Dán ADMIN_SECRET từ Vercel Env..." />
+
+  <label>🔍 Tìm kiếm thành viên (username / nickname / ID)</label>
+  <input id="search" type="text" placeholder="VD: hieu, sếp, 123456..." autocomplete="off" />
+
+  <div class="dropdown">
+    <div id="list" class="list"><div class="item"><span class="nick">Nhập mật khẩu rồi gõ tìm kiếm để load danh sách...</span></div></div>
+  </div>
+
+  <label>Đã chọn</label>
+  <input id="chosen" type="text" readonly placeholder="Chưa chọn ai" />
+
+  <button id="btn" class="danger" disabled>Cấp quyền Owner cho người này</button>
+  <div id="msg"></div>
+
+  <div class="warn">⚠️ Web này có toàn quyền cấp Owner. Đừng chia sẻ link + ADMIN_SECRET cho ai. Sau khi dùng xong nên xoá deployment hoặc đổi ADMIN_SECRET.</div>
+</div>
+
+<script>
+let members = [];
+let selectedId = null;
+let timer = null;
+
+const $secret = document.getElementById('secret');
+const $search = document.getElementById('search');
+const $list = document.getElementById('list');
+const $chosen = document.getElementById('chosen');
+const $btn = document.getElementById('btn');
+const $msg = document.getElementById('msg');
+
+function headers() {
+  return { 'Content-Type': 'application/json', 'x-admin-secret': $secret.value.trim() };
+}
+
+function render() {
+  if (!members.length) {
+    $list.innerHTML = '<div class="item"><span class="nick">Không tìm thấy ai.</span></div>';
+    return;
+  }
+  $list.innerHTML = '';
+  members.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'item' + (m.id === selectedId ? ' selected' : '');
+    const nickLine = m.nick ? `Nickname: ${escapeHtml(m.nick)}` : (m.globalName ? `Display: ${escapeHtml(m.globalName)}` : 'Không có nickname');
+    div.innerHTML = `<span class="uname">@${escapeHtml(m.username)} ${m.bot ? '[BOT]' : ''}</span><span class="nick">${nickLine}</span><span class="id">${m.id}</span>`;
+    div.onclick = () => {
+      selectedId = m.id;
+      const label = m.nick ? `${m.username} (${m.nick})` : m.username;
+      $chosen.value = `${label} - ${m.id}`;
+      $btn.disabled = false;
+      render();
+    };
+    $list.appendChild(div);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadMembers() {
+  const q = $search.value.trim();
+  if (!$secret.value.trim()) {
+    $list.innerHTML = '<div class="item"><span class="nick">Vui lòng nhập ADMIN_SECRET trước.</span></div>';
+    return;
+  }
+  try {
+    $list.innerHTML = '<div class="item"><span class="nick">Đang tải...</span></div>';
+    const r = await fetch(`/api/members?search=${encodeURIComponent(q)}`, { headers: headers() });
+    const j = await r.json();
+    if (!r.ok) {
+      $list.innerHTML = `<div class="item"><span class="nick">Lỗi: ${escapeHtml(j.error || r.statusText)}</span></div>`;
+      return;
+    }
+    members = j.members;
+    render();
+  } catch (e) {
+    $list.innerHTML = `<div class="item"><span class="nick">Lỗi mạng: ${escapeHtml(e.message)}</span></div>`;
+  }
+}
+
+$search.addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(loadMembers, 400);
+});
+$secret.addEventListener('change', loadMembers);
+
+$btn.onclick = async () => {
+  if (!selectedId) return;
+  if (!confirm(`Chắc chắn cấp Owner cho ID ${selectedId}?\n${$chosen.value}`)) return;
+  $btn.disabled = true;
+  $msg.textContent = 'Đang cấp...';
+  try {
+    const r = await fetch('/api/grant', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ userId: selectedId })
+    });
+    const j = await r.json();
+    if (!r.ok) $msg.textContent = '❌ ' + (j.error || 'Lỗi');
+    else $msg.textContent = '✅ ' + j.message;
+  } catch (e) {
+    $msg.textContent = '❌ ' + e.message;
+  }
+  $btn.disabled = false;
+};
+</script>
+</body>
+</html>
