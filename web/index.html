@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bot Owner Panel</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; max-width: 640px; margin: 30px auto; padding: 0 16px; }
+  input, button { padding: 10px; border-radius: 8px; border: 1px solid #333; }
+  input { width: 70%; background: #1c1c1c; color: #fff; }
+  button { background: #5865F2; color: #fff; cursor: pointer; }
+  .card { background: #1c1c1c; border-radius: 12px; padding: 12px; margin-top: 12px; display: flex; gap: 12px; align-items: center; }
+  img { width: 64px; height: 64px; border-radius: 50%; }
+  .muted { color: #aaa; font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>🤖 Bot Owner Panel</h2>
+<p class="muted">Nhập Discord User ID → hiện avatar, username, nickname (global name). Chỉ người có PANEL_PASSWORD mới lưu được.</p>
+
+<input id="uid" placeholder="VD: 123456789012345678" />
+<button onclick="lookup()">Xem</button>
+
+<div id="preview"></div>
+
+<h3>Danh sách được quyền dùng bot</h3>
+<div id="list"></div>
+
+<script>
+async function lookup() {
+  const id = document.getElementById('uid').value.trim();
+  if (!id) return alert('Nhập ID đã');
+  const r = await fetch(`/api/discord-user?id=${id}`);
+  const u = await r.json();
+  if (u.error) return alert(u.error);
+  document.getElementById('preview').innerHTML = `
+    <div class="card">
+      <img src="${u.avatarURL}" />
+      <div>
+        <b>${u.global_name || u.username}</b> <span class="muted">@${u.username}</span><br>
+        <span class="muted">ID: ${u.id}</span><br>
+        <button onclick="save('${u.id}')">+ Cho quyền dùng bot</button>
+      </div>
+    </div>`;
+}
+
+async function loadList() {
+  const r = await fetch('/api/owners');
+  const d = await r.json();
+  const box = document.getElementById('list');
+  box.innerHTML = '';
+  for (const id of (d.ids || [])) {
+    // fetch info từng ID để hiện avatar + tên
+    const ru = await fetch(`/api/discord-user?id=${id}`);
+    const u = await ru.json();
+    const name = u.error ? id : `${u.global_name || u.username} (@${u.username})`;
+    const avt = u.error ? '' : `<img src="${u.avatarURL}" style="width:40px;height:40px" />`;
+    box.innerHTML += `<div class="card">${avt}<div>${name}<br><span class="muted">${id}</span></div>
+      <button onclick="removeId('${id}')">Xóa</button></div>`;
+  }
+}
+
+async function save(id) {
+  const pw = prompt('Nhập PANEL_PASSWORD (owner gốc mới biết):');
+  const r = await fetch('/api/owners', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'add', id, password: pw })
+  });
+  const d = await r.json();
+  if (d.error) alert(d.error); else loadList();
+}
+
+async function removeId(id) {
+  const pw = prompt('Nhập PANEL_PASSWORD để xóa:');
+  const r = await fetch('/api/owners', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'remove', id, password: pw })
+  });
+  const d = await r.json();
+  if (d.error) alert(d.error); else loadList();
+}
+
+loadList();
+</script>
+</body>
+</html>
